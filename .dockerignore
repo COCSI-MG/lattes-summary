@@ -7,30 +7,30 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-*.egg
 
 # Virtual environments
 venv/
 env/
 ENV/
-.venv/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.sublime-*
 
 # OS
 .DS_Store
 Thumbs.db
-.directory
 
-# Environment variables
+# Git
+.git/
+.gitignore
+
+# Environment variables (sensitive data)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Temporary files
 tmp/
@@ -40,10 +40,11 @@ tmp/
 # Poetry
 poetry.lock
 
-# Cache
-scriptLattes/cache/*
-!scriptLattes/cache/.gitkeep
+# Documentation
+README*.md
 
-# Coverage
+# Other
 .pytest_cache/
 .coverage
+htmlcov/
+
