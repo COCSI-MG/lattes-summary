@@ -58,13 +58,7 @@ class LattesRobot:
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_experimental_option('prefs', {'download.default_directory': self.results_dir})
  
-        so = platform.system()
-        if so == 'Windows':
-            chrome_driver_path = os.path.abspath("chromedriver.exe")
-        elif so == 'Linux':
-            chrome_driver_path = os.path.abspath("chromedriver")
-        else:
-            print('Sistema Operacional não identificado')
+        chrome_driver_path = self.driver_path
             
         service = Service(chrome_driver_path)
  
@@ -149,7 +143,15 @@ class LattesRobot:
 
 
 def __get_data(id_lattes, diretorio):
-    rob = LattesRobot(driver_path="./chromedriver", results_dir=diretorio)
+    # Obtém o caminho absoluto do chromedriver relativo a este arquivo
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    chromedriver_path = os.path.join(current_dir, '..', 'chromedriver')
+    
+    # Adiciona extensão .exe se for Windows
+    if platform.system() == 'Windows':
+        chromedriver_path += '.exe'
+    
+    rob = LattesRobot(driver_path=chromedriver_path, results_dir=diretorio)
     print(f"Baixando CV Lattes: {id_lattes}. Este processo pode demorar alguns segundos.")
     rob.load_codes(id_lattes)
     rob.check_downloaded_cvs()

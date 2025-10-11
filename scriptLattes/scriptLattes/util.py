@@ -16,8 +16,6 @@ ABSBASE = os.path.abspath('.') + SEP
 
 
 def buscarArquivo(filepath, arquivoConfiguracao=None):
-    if not arquivoConfiguracao:
-        arquivoConfiguracao = sys.argv[1]
     curdir = os.path.abspath(os.path.curdir)
     if not os.path.isfile(filepath) and arquivoConfiguracao:
         # vamos tentar mudar o diretorio para o atual do arquivo

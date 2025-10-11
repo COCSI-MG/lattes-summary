@@ -121,6 +121,7 @@ class Grupo:
 
 
         # carregamos a lista de membros
+        print(f"Carregando lista de membros...")
         entrada = buscarArquivo(self.obterParametro('global-arquivo_de_entrada'))
 
         idSequencial = 0
