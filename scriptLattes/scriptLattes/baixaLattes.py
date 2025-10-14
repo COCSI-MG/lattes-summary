@@ -34,9 +34,10 @@ class LattesRobot:
         self.initialize()
 
     def initialize(self):
-        if not os.path.exists(self.driver_path):
-            #logging.error('Invalid driver path: %s' % self.driver_path)
-            exit(1)
+        # If a driver path was provided but does not exist in this environment,
+        # fall back to Selenium Manager by unsetting the path.
+        if self.driver_path and not os.path.exists(self.driver_path):
+            self.driver_path = None
 
         if not os.path.exists(self.results_dir):
             os.makedirs(self.results_dir)
@@ -52,18 +53,25 @@ class LattesRobot:
     def create_driver(self):
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("start-maximized")
-        chrome_options.add_argument('--blink-settings=imagesEnabled=false') 
-        chrome_options.add_argument("headless")
+        chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+        # Headless and Docker-friendly flags
+        chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         chrome_options.add_experimental_option('prefs', {'download.default_directory': self.results_dir})
  
         chrome_driver_path = self.driver_path
-            
-        service = Service(chrome_driver_path)
+        
  
         try:
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            if chrome_driver_path:
+                service = Service(chrome_driver_path)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            else:
+                # Let Selenium Manager resolve the appropriate chromedriver from PATH
+                self.driver = webdriver.Chrome(options=chrome_options)
         except Exception as e:
             print(f"Erro ao inicializar o driver: {e}")
 
@@ -143,13 +151,23 @@ class LattesRobot:
 
 
 def __get_data(id_lattes, diretorio):
-    # Obtém o caminho absoluto do chromedriver relativo a este arquivo
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    chromedriver_path = os.path.join(current_dir, '..', 'chromedriver')
-    
-    # Adiciona extensão .exe se for Windows
-    if platform.system() == 'Windows':
-        chromedriver_path += '.exe'
+    # Resolve chromedriver path with environment override and OS-aware defaults.
+    # In Linux (e.g., inside Docker), prefer Selenium Manager/ PATH by default.
+    env_driver_path = os.environ.get('CHROMEDRIVER_PATH')
+
+    if env_driver_path:
+        chromedriver_path = env_driver_path
+    else:
+        system_name = platform.system()
+        if system_name == 'Windows':
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            chromedriver_path = os.path.join(current_dir, '..', 'chromedriver.exe')
+        elif system_name == 'Darwin':
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            chromedriver_path = os.path.join(current_dir, '..', 'chromedriver')
+        else:
+            # Linux: let Selenium Manager handle it by not providing a path
+            chromedriver_path = None
     
     rob = LattesRobot(driver_path=chromedriver_path, results_dir=diretorio)
     print(f"Baixando CV Lattes: {id_lattes}. Este processo pode demorar alguns segundos.")

@@ -1,0 +1,24 @@
+services:
+  cefet-lattes:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cefet-lattes-app
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+      - ./scriptLattes:/app/scriptLattes
+      - ./tmp:/app/tmp
+      - ./scriptLattes/cache:/app/scriptLattes/cache
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - cefet-network
+
+networks:
+  cefet-network:
+    driver: bridge
+
