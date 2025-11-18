@@ -40,6 +40,9 @@ tmp/
 # Poetry
 poetry.lock
 
+# Python version management
+.python-version
+
 # Documentation
 README*.md
 
