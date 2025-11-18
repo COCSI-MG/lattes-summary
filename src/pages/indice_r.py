@@ -7,28 +7,83 @@ import os
 import json
 import re
 import io
+import sys
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+# Adiciona o diretório 'src' ao path para importar módulos do projeto
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src')))
+from db.connect import connect, get_db_path
+from services.atividade import AtividadeService
+from services.categoria import CategoriaService
+from pages.components.tables import render_tabela_atividades_pontos, render_relacao_categoria_atividade
+from lattes.indice_r import Trabalho
+
+
+def load_atividade_pontos_from_db() -> dict:
+    """
+    Carrega os dados da tabela atividade_ponto e retorna como dicionário.
+    
+    Returns:
+        Dicionário com atividade -> pontos
+    """
+    try:
+        conn = connect()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT atividade, pontos FROM atividade_ponto")
+        rows = cursor.fetchall()
+        
+        atividade_pontos = {row['atividade']: row['pontos'] for row in rows}
+        
+        conn.close()
+        return atividade_pontos
+    except Exception as e:
+        st.error(f"Erro ao carregar atividades do banco: {e}")
+        return {}
+
+
+def load_categoria_atividade_from_db() -> dict:
+    """
+    Carrega as relações entre categorias e atividades do banco de dados.
+    Categorias sem atividade associada retornam None.
+    
+    Returns:
+        Dicionário com categoria -> atividade (ou None se não houver relação)
+    """
+    try:
+        conn = connect()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id, categoria FROM categoria_lattes")
+        categorias = {row['id']: row['categoria'] for row in cursor.fetchall()}
+        
+        cursor.execute("""
+            SELECT 
+                c.categoria as categoria_nome,
+                a.atividade as atividade_nome
+            FROM categoria_atividade ca
+            JOIN categoria_lattes c ON ca.categoria_id = c.id
+            JOIN atividade_ponto a ON ca.atividade_id = a.id
+        """)
+        relacoes = cursor.fetchall()
+        
+        categoria_para_atividade = {cat_nome: None for cat_nome in categorias.values()}
+        
+        for row in relacoes:
+            categoria_para_atividade[row['categoria_nome']] = row['atividade_nome']
+        
+        conn.close()
+        return categoria_para_atividade
+    except Exception as e:
+        st.error(f"Erro ao carregar categorias do banco: {e}")
+        return {}
+
 
 def initialize_session_state():
-    """
-    Inicializa o session_state com o DataFrame e o dicionário de pesos por atividade.
-    """
     if 'indice_r_atividade_pontos' not in st.session_state:
-        st.session_state['indice_r_atividade_pontos'] = {
-            'Periódicos Indexados': 10,
-            'Periódicos não indexados constantes na base Qualis': 4,
-            'Anais de Congressos': 2,
-            'Livros - Completo': 8,
-            'Livros - Organizado': 2,
-            'Livros - Capítulo': 2,
-            'Livros - Tradução': 2,
-            'Projeto de Pesquisa - Coordenador': 2,
-            'Projeto de Pesquisa - Participação': 1,
-            'Bolsa de Produtividade PQ ou DT': 2,
-            'Carta Patente': 8,
-        }
+        atividade_pontos_db = load_atividade_pontos_from_db()
+        st.session_state['indice_r_atividade_pontos'] = atividade_pontos_db
 
     if 'indice_r_df' not in st.session_state:
         st.session_state['indice_r_df'] = pd.DataFrame(
@@ -36,53 +91,8 @@ def initialize_session_state():
         )
 
     if 'indice_r_categoria_para_atividade' not in st.session_state:
-        st.session_state['indice_r_categoria_para_atividade'] = {
-            # Produções Bibliográficas
-            'Artigos completos em periódicos': 'Periódicos Indexados',
-            'Livros publicados': 'Livros - Completo',
-            'Capítulos de livros': 'Livros - Capítulo',
-            'Textos em jornais': 'Periódicos Indexados',
-            'Trabalhos completos em congressos': 'Anais de Congressos',
-            'Resumos expandidos': 'Anais de Congressos',
-            'Resumos em congressos': 'Anais de Congressos',
-            'Artigos aceitos': None,
-            'Apresentações de trabalho': None,
-            'Outros tipos': None,
-
-            # Produções Técnicas
-            'Software com registro': "Carta Patente",
-            'Software sem registro': None,
-            'Produtos tecnológicos': None,
-            'Processos ou técnicas': None,
-            'Trabalhos técnicos': None,
-            'Outros tipos (técnicas)': None,
-            'Entrevistas e comentários': None,
-
-            # Produções Artísticas
-            'Total de produções artísticas': None,
-
-            # Orientações (não entram no índice por padrão)
-            'Pós-doutorado (andamento)': None,
-            'Doutorado (andamento)': None,
-            'Mestrado (andamento)': None,
-            'Especialização (andamento)': None,
-            'TCC (andamento)': None,
-            'Iniciação científica (andamento)': None,
-            'Outros tipos (andamento)': None,
-            'Pós-doutorado (concluída)': None,
-            'Doutorado (concluída)': None,
-            'Mestrado (concluída)': None,
-            'Especialização (concluída)': None,
-            'TCC (concluída)': None,
-            'Iniciação científica (concluída)': None,
-            'Outros tipos (concluída)': None,
-
-            # Outros
-            'Projetos de pesquisa': 'Projeto de Pesquisa - Participação',
-            'Prêmios e títulos': None,
-            'Participação em eventos': None,
-            'Organização de eventos': None,
-        }
+        categoria_atividade_db = load_categoria_atividade_from_db()
+        st.session_state['indice_r_categoria_para_atividade'] = categoria_atividade_db
 
 
 def compute_indice_r(producoes_df: pd.DataFrame, atividade_pontos: dict) -> int:
@@ -105,15 +115,90 @@ def compute_indice_r(producoes_df: pd.DataFrame, atividade_pontos: dict) -> int:
     return 0
 
 
-def extract_json_from_html(html_content: str):
+def extract_json_from_html(html_content: str, nome_arquivo: str = '', categoria: str = ''):
+    """
+    Extrai os dados JSON do HTML e retorna uma lista de objetos Trabalho.
+    
+    Args:
+        html_content: Conteúdo HTML a ser processado
+        nome_arquivo: Nome do arquivo HTML de origem
+        categoria: Categoria do trabalho (ex: "Artigos completos em periódicos")
+        
+    Returns:
+        Lista de objetos Trabalho com as informações extraídas
+    """
     try:
         match = re.search(r'const DATA = (\[.*?\]);', html_content, re.DOTALL)
         if match:
             json_str = match.group(1)
             data = json.loads(json_str)
-            return data
+            
+            trabalhos = []
+            for item in data:
+                titulo = get_first_value(
+                    item,
+                    ['titulo', 'título', 'title', 'nome', 'nome do trabalho', 'nome_do_trabalho', 'titulo_do_trabalho', 'descricao', 'descrição', 'description', 'apresentacao', 'evento'],
+                    default=''
+                )
+                autores = get_first_value(
+                    item, 
+                    ['autores', 'Autores', 'authors', 'orientado_a', 'orientado', 'orientador'], 
+                    default=''
+                )
+                ano = get_first_value(
+                    item, 
+                    ['ano', 'Ano', 'year', 'Year'], 
+                    default=''
+                )
+                doi = get_first_value(
+                    item,
+                    ['doi', 'DOI', 'Doi'],
+                    default=''
+                )
+                issn = get_first_value(
+                    item,
+                    ['issn', 'ISSN', 'Issn'],
+                    default=''
+                )
+                isbn = get_first_value(
+                    item,
+                    ['isbn', 'ISBN', 'Isbn'],
+                    default=''
+                )
+                
+                texto_completo = json.dumps(item, ensure_ascii=False)
+                
+                campos_conhecidos = {
+                    'titulo', 'título', 'title', 'nome', 'nome do trabalho', 'nome_do_trabalho', 'titulo_do_trabalho',
+                    'descricao', 'descrição', 'description', 'evento', 'apresentacao',
+                    'autores', 'Autores', 'authors', 'orientado_a', 'orientado', 'orientador',
+                    'ano', 'Ano', 'year', 'Year',
+                    'doi', 'DOI', 'Doi',
+                    'issn', 'ISSN', 'Issn',
+                    'isbn', 'ISBN', 'Isbn'
+                }
+                outros = {k: v for k, v in item.items() if k not in campos_conhecidos}
+                
+                trabalho = Trabalho(
+                    autores=autores,
+                    titulo=titulo,
+                    categoria=categoria,
+                    atividade='',  # Será determinado posteriormente pelas regras
+                    pontos=None,   # Será calculado posteriormente
+                    ano=str(ano) if ano else '',
+                    doi=doi,
+                    issn=issn,
+                    isbn=isbn,
+                    outros=outros,
+                    texto_completo=texto_completo,
+                    nome_arquivo=nome_arquivo
+                )
+                
+                trabalhos.append(trabalho)
+            
+            return trabalhos
         return []
-    except Exception:
+    except Exception as e:
         return []
 
 
@@ -183,6 +268,16 @@ def build_categorias(config_options: dict) -> list:
 
 
 def carregar_dados_para_dataframe(output_dir: str) -> pd.DataFrame:
+    """
+    Carrega os dados dos arquivos HTML e retorna um DataFrame com os trabalhos.
+    Utiliza a estrutura de objetos Trabalho do método extract_json_from_html.
+    
+    Args:
+        output_dir: Diretório contendo os arquivos HTML
+        
+    Returns:
+        DataFrame com as colunas: id, filtro, atividade, nome do trabalho, autores, ano, pontos
+    """
     atividade_pontos = st.session_state['indice_r_atividade_pontos']
     cat_to_atividade = st.session_state['indice_r_categoria_para_atividade']
     config_options = st.session_state.get('config_options', {})
@@ -205,32 +300,25 @@ def carregar_dados_para_dataframe(output_dir: str) -> pd.DataFrame:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
-            data = extract_json_from_html(html_content)
+            trabalhos = extract_json_from_html(html_content, nome_arquivo=arquivo, categoria=descricao)
         except Exception:
-            data = []
+            trabalhos = []
 
-        if not data:
+        if not trabalhos:
             continue
 
-        for item in data:
-            nome_trabalho = get_first_value(
-                item,
-                ['titulo', 'título', 'title', 'nome', 'nome do trabalho', 'nome_do_trabalho', 'descricao', 'descrição', 'description'],
-                default='—'
-            )
-            autores = get_first_value(item, ['autores', 'Autores', 'authors'], default='—')
-            ano = get_first_value(item, ['ano', 'Ano', 'year', 'Year'], default='')
-
-            atividade = cat_to_atividade.get(descricao)
-            pontos = atividade_pontos.get(atividade) if atividade else None
+        for trabalho in trabalhos:
+            atividade = trabalho.atividade if trabalho.atividade else cat_to_atividade.get(descricao)
+            
+            pontos = trabalho.pontos if trabalho.pontos is not None else (atividade_pontos.get(atividade) if atividade else None)
 
             linhas.append({
                 'id': next_id,
-                'filtro': descricao,
+                'filtro': trabalho.categoria,  # usa a categoria do objeto Trabalho
                 'atividade': atividade,
-                'nome do trabalho': nome_trabalho,
-                'autores': autores,
-                'ano': ano,
+                'nome do trabalho': trabalho.titulo if trabalho.titulo else '—',
+                'autores': trabalho.autores if trabalho.autores else '—',
+                'ano': trabalho.ano,
                 'pontos': pontos,
             })
             next_id += 1
@@ -243,9 +331,6 @@ def carregar_dados_para_dataframe(output_dir: str) -> pd.DataFrame:
 
 
 def main():
-    """
-    Página do Índice R
-    """
     st.title('📈 Índice R')
     st.markdown('---')
 
@@ -284,11 +369,8 @@ def main():
 
     st.markdown('---')
 
-    with st.expander('Tabela de atividades e pontos', expanded=False):
-        tabela_pontos = pd.DataFrame(
-            list(atividade_pontos.items()), columns=['atividade', 'pontos']
-        ).sort_values('pontos',ascending=False)
-        st.dataframe(tabela_pontos,hide_index=True, use_container_width=True, height=360)
+    render_tabela_atividades_pontos(load_atividade_pontos_from_db)
+    render_relacao_categoria_atividade(load_categoria_atividade_from_db)
 
     if not producoes_df.empty:
         df_sem = producoes_df[producoes_df['atividade'].isna()].copy()
@@ -317,6 +399,7 @@ def main():
                     'pontos': st.column_config.NumberColumn('pontos', disabled=True),
                 },
             )
+        
 
         st.markdown('---')
 
